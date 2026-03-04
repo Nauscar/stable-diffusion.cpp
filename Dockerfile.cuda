@@ -3,19 +3,32 @@ ARG UBUNTU_VERSION=24.04
 
 FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu${UBUNTU_VERSION} AS build
 
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential git ccache cmake
+
+# Install web-ui dependencies
+RUN apt-get install -y nodejs npm
+RUN npm install -g pnpm
+
+COPY . /sd.cpp
+
+# Build web-ui
+WORKDIR /sd.cpp/examples/server/frontend
+RUN pnpm install
+RUN pnpm build
+RUN pnpm build:header
+RUN node scripts/build_gen_index_html.js
 
 WORKDIR /sd.cpp
 
-COPY . .
-
 ARG CUDACXX=/usr/local/cuda/bin/nvcc
 # Optional flags: -DCMAKE_CUDA_FLAGS="-Wno-deprecated-gpu-targets" -DCMAKE_CUDA_ARCHITECTURES="60"
-RUN cmake . -B ./build -DSD_CUDA=ON
+RUN cmake . -B ./build -DSD_CUDA=ON -DCMAKE_CUDA_FLAGS="-Wno-deprecated-gpu-targets" -DCMAKE_CUDA_ARCHITECTURES="60"
 RUN cmake --build ./build --config Release --parallel
 
 FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS runtime
 
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install --yes --no-install-recommends libgomp1 &&    \
     apt-get clean
